@@ -16,6 +16,7 @@ npm-debug.log*
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 
@@ -34,3 +35,7 @@ Thumbs.db
 
 # Test data
 data/
+
+# Documentation / Misc
+Capture.PNG
+plan.md
