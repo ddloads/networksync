@@ -146,6 +146,10 @@ function App() {
     const path = await window.api.selectProjectFolder();
     if (path) {
       setLocalPath(path);
+      if (selectedProject) {
+        await window.api.setProjectPath(selectedProject.id, path);
+        await loadProjects();
+      }
     }
   };
 
@@ -462,6 +466,7 @@ function App() {
                 <button
                     onClick={() => {
                     setSelectedProject(project);
+                    setLocalPath(project.localPath || '');
                     setStatus(null);
                     setView('project');
                     }}

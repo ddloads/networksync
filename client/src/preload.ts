@@ -19,6 +19,7 @@ export interface Project {
   name: string;
   createdAt: Date;
   lastSyncAt: Date | null;
+  localPath?: string;
 }
 
 export interface Snapshot {
@@ -92,6 +93,8 @@ const api = {
 
   // Projects
     getProjects: (): Promise<Project[]> => ipcRenderer.invoke('get-projects'),
+    setProjectPath: (projectId: string, localPath: string): Promise<boolean> => 
+      ipcRenderer.invoke('set-project-path', projectId, localPath),
     createProject: (name: string): Promise<Project> =>
       ipcRenderer.invoke('create-project', name),
     deleteProject: (id: string): Promise<void> =>

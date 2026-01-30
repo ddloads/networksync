@@ -6,6 +6,7 @@ import { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } from 'el
 import { join } from 'node:path';
 import { SyncEngine } from '@networksync/core';
 import chokidar from 'chokidar';
+import fs from 'node:fs/promises';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -18,12 +19,41 @@ let lastKnownSnapshotId: string | null = null;
 interface AppConfig {
   nasPath: string | null;
   machineName: string;
+  projects: Record<string, { localPath: string }>;
 }
 
 let config: AppConfig = {
   nasPath: null,
   machineName: require('os').hostname(),
+  projects: {},
 };
+
+async function loadConfig() {
+  try {
+    const configPath = join(app.getPath('userData'), 'config.json');
+    const data = await fs.readFile(configPath, 'utf8');
+    const loaded = JSON.parse(data);
+    config = { ...config, ...loaded };
+    
+    // Initialize sync engine if nasPath exists
+    if (config.nasPath) {
+      syncEngine = new SyncEngine(config.nasPath);
+      await syncEngine.initialize();
+    }
+  } catch (error) {
+    // Config doesn't exist or is invalid, use defaults
+    console.log('No existing config found, using defaults.');
+  }
+}
+
+async function saveConfig() {
+  try {
+    const configPath = join(app.getPath('userData'), 'config.json');
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+  } catch (error) {
+    console.error('Failed to save config:', error);
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -128,6 +158,7 @@ function setupIpcHandlers() {
   // Set NAS path and initialize sync engine
   ipcMain.handle('set-nas-path', async (_event, nasPath: string) => {
     config.nasPath = nasPath;
+    await saveConfig();
     syncEngine = new SyncEngine(nasPath);
     await syncEngine.initialize();
     return true;
@@ -141,7 +172,23 @@ function setupIpcHandlers() {
   // Get projects
   ipcMain.handle('get-projects', () => {
     if (!syncEngine) return [];
-    return syncEngine.getProjects();
+    const nasProjects = syncEngine.getProjects();
+    // Merge with local config
+    return nasProjects.map(p => ({
+        ...p,
+        localPath: config.projects[p.id]?.localPath
+    }));
+  });
+
+  // Set project path
+  ipcMain.handle('set-project-path', async (_event, projectId: string, localPath: string) => {
+    if (!config.projects[projectId]) {
+        config.projects[projectId] = { localPath };
+    } else {
+        config.projects[projectId].localPath = localPath;
+    }
+    await saveConfig();
+    return true;
   });
 
   // Create project
@@ -151,9 +198,15 @@ function setupIpcHandlers() {
   });
 
   // Delete project
-  ipcMain.handle('delete-project', (_event, id: string) => {
+  ipcMain.handle('delete-project', async (_event, id: string) => {
     if (!syncEngine) throw new Error('NAS not configured');
-    return syncEngine.deleteProject(id);
+    syncEngine.deleteProject(id);
+    
+    // Also remove from local config
+    if (config.projects[id]) {
+        delete config.projects[id];
+        await saveConfig();
+    }
   });
 
   // Get snapshots
@@ -422,7 +475,8 @@ function setupIpcHandlers() {
 }
 
 // App lifecycle
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await loadConfig();
   createWindow();
   createTray();
   setupIpcHandlers();
