@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { formatBytes, formatRelativeTime } from '@/lib/utils';
@@ -8,6 +9,7 @@ import { ConflictsPage } from './pages/ConflictsPage';
 import { FileBrowserPage } from './pages/FileBrowserPage';
 import { SelectiveSyncPage } from './pages/SelectiveSyncPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { useToast } from '@/components/ui/use-toast';
 import {
   FolderOpen,
   Upload,
@@ -25,6 +27,7 @@ import {
   Filter,
   Folder,
   Trash2,
+  MessageSquare,
 } from 'lucide-react';
 
 interface Project {
@@ -45,6 +48,7 @@ interface SyncProgress {
 }
 
 function App() {
+  const { toast } = useToast();
   const [nasPath, setNasPath] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -61,6 +65,7 @@ function App() {
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newBranchName, setNewBranchName] = useState('');
+  const [pushMessage, setPushMessage] = useState('');
   const [status, setStatus] = useState<{
     added: number;
     modified: number;
@@ -108,8 +113,10 @@ function App() {
 
     const unsubRemote = window.api.onRemoteChanges(({ projectId, snapshot }) => {
       if (projectId === selectedProject?.id) {
-        // Show a more permanent notification or update UI state
-        alert(`New snapshot available on NAS: "${snapshot.message}" by ${snapshot.createdBy}.\nClick 'Pull from NAS' to download changes.`);
+        toast({
+          title: "New Update Available",
+          description: `Snapshot "${snapshot.message}" by ${snapshot.createdBy} is available on NAS.`,
+        });
         loadProjects(); // Refresh project list to update last sync info
       }
     });
@@ -172,9 +179,14 @@ function App() {
         setStatus(null);
       }
       await loadProjects();
+      toast({ title: "Project deleted" });
     } catch (error) {
       console.error('Failed to delete project:', error);
-      alert(`Failed to delete project: ${error}`);
+      toast({ 
+        title: "Error", 
+        description: `Failed to delete project: ${error}`, 
+        variant: "destructive" 
+      });
     }
   };
 
@@ -190,9 +202,14 @@ function App() {
       setSelectedProject(project);
       setNewProjectName('');
       setIsCreatingProject(false);
+      toast({ title: "Project created" });
     } catch (error) {
       console.error('Failed to create project:', error);
-      alert(`Failed to create project: ${error}`);
+      toast({ 
+        title: "Error", 
+        description: `Failed to create project: ${error}`, 
+        variant: "destructive" 
+      });
     }
   };
 
@@ -235,16 +252,29 @@ function App() {
     setSyncing(true);
     setSyncProgress(null);
     try {
-      const result = await window.api.push(selectedProject.id, localPath, 'Sync', currentBranch);
+      const message = pushMessage.trim() || 'Sync';
+      const result = await window.api.push(selectedProject.id, localPath, message, currentBranch);
       if (result.success) {
-        alert(`Push complete! Added: ${result.filesAdded}, Modified: ${result.filesModified}, Deleted: ${result.filesDeleted}`);
+        toast({
+          title: "Push complete",
+          description: `Added: ${result.filesAdded}, Modified: ${result.filesModified}, Deleted: ${result.filesDeleted}`
+        });
+        setPushMessage(''); // Clear message on success
         await loadProjects();
         await refreshStatus();
       } else {
-        alert(`Push failed: ${result.error}`);
+        toast({ 
+            title: "Push failed", 
+            description: result.error, 
+            variant: "destructive" 
+        });
       }
     } catch (error) {
-      alert(`Push failed: ${error}`);
+        toast({ 
+            title: "Push failed", 
+            description: String(error), 
+            variant: "destructive" 
+        });
     } finally {
       setSyncing(false);
       setSyncProgress(null);
@@ -262,15 +292,31 @@ function App() {
       if (result.conflicts.length > 0) {
         setConflicts(result.conflicts);
         setView('conflicts');
+        toast({
+            title: "Conflicts detected",
+            description: "Please resolve conflicts to complete the pull.",
+            variant: "destructive"
+        });
       } else if (result.success) {
-        alert(`Pull complete! Downloaded: ${result.filesDownloaded}, Deleted: ${result.filesDeleted}`);
+        toast({
+            title: "Pull complete",
+            description: `Downloaded: ${result.filesDownloaded}, Deleted: ${result.filesDeleted}`
+        });
         await loadProjects();
         await refreshStatus();
       } else {
-        alert(`Pull failed: ${result.error}`);
+        toast({ 
+            title: "Pull failed", 
+            description: result.error, 
+            variant: "destructive" 
+        });
       }
     } catch (error) {
-      alert(`Pull failed: ${error}`);
+        toast({ 
+            title: "Pull failed", 
+            description: String(error), 
+            variant: "destructive" 
+        });
     } finally {
       setSyncing(false);
       setSyncProgress(null);
@@ -284,16 +330,27 @@ function App() {
     try {
       const retryResult = await window.api.pull(selectedProject.id, localPath, currentBranch, resolutions, includePatterns);
       if (retryResult.success) {
-        alert(`Pull complete! Downloaded: ${retryResult.filesDownloaded}, Deleted: ${retryResult.filesDeleted}`);
+        toast({
+            title: "Pull complete",
+            description: `Downloaded: ${retryResult.filesDownloaded}, Deleted: ${retryResult.filesDeleted}`
+        });
         setView('project');
         setConflicts([]);
         await loadProjects();
         await refreshStatus();
       } else {
-        alert(`Pull failed: ${retryResult.error}`);
+        toast({ 
+            title: "Pull failed", 
+            description: retryResult.error, 
+            variant: "destructive" 
+        });
       }
     } catch (error) {
-      alert(`Pull failed: ${error}`);
+        toast({ 
+            title: "Pull failed", 
+            description: String(error), 
+            variant: "destructive" 
+        });
     } finally {
       setSyncing(false);
       setSyncProgress(null);
@@ -312,9 +369,14 @@ function App() {
       setCurrentBranch(newBranchName.trim());
       setNewBranchName('');
       setIsCreatingBranch(false);
+      toast({ title: "Branch created" });
     } catch (error) {
       console.error('Failed to create branch:', error);
-      alert(`Failed to create branch: ${error}`);
+      toast({ 
+        title: "Error", 
+        description: `Failed to create branch: ${error}`, 
+        variant: "destructive" 
+      });
     }
   };
 
@@ -330,14 +392,25 @@ function App() {
     try {
       const result = await window.api.restoreSnapshot(selectedProject.id, localPath, snapshotId, includePatterns);
       if (result.success) {
-        alert(`Restore complete! Downloaded: ${result.filesDownloaded}, Deleted: ${result.filesDeleted}`);
+        toast({
+            title: "Restore complete",
+            description: `Downloaded: ${result.filesDownloaded}, Deleted: ${result.filesDeleted}`
+        });
         await refreshStatus();
         setView('project');
       } else {
-        alert(`Restore failed: ${result.error}`);
+        toast({ 
+            title: "Restore failed", 
+            description: result.error, 
+            variant: "destructive" 
+        });
       }
     } catch (error) {
-      alert(`Restore failed: ${error}`);
+        toast({ 
+            title: "Restore failed", 
+            description: String(error), 
+            variant: "destructive" 
+        });
     } finally {
       setSyncing(false);
       setSyncProgress(null);
@@ -743,15 +816,33 @@ function App() {
 
                 {/* Actions */}
                 {localPath && !syncing && (
-                  <div className="flex gap-4">
-                    <Button onClick={handlePush} size="lg" className="flex-1">
-                      <Upload className="mr-2 h-5 w-5" />
-                      Push to NAS
-                    </Button>
-                    <Button onClick={handlePull} variant="outline" size="lg" className="flex-1">
-                      <Download className="mr-2 h-5 w-5" />
-                      Pull from NAS
-                    </Button>
+                  <div className="space-y-4">
+                    {/* Commit Message Input */}
+                    <div className="relative">
+                        <MessageSquare className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input 
+                            placeholder="Enter a message for this push (required)" 
+                            className="pl-9" 
+                            value={pushMessage}
+                            onChange={(e) => setPushMessage(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="flex gap-4">
+                        <Button 
+                            onClick={handlePush} 
+                            size="lg" 
+                            className="flex-1"
+                            disabled={!pushMessage.trim()}
+                        >
+                        <Upload className="mr-2 h-5 w-5" />
+                        Push to NAS
+                        </Button>
+                        <Button onClick={handlePull} variant="outline" size="lg" className="flex-1">
+                        <Download className="mr-2 h-5 w-5" />
+                        Pull from NAS
+                        </Button>
+                    </div>
                   </div>
                 )}
               </div>

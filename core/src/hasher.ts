@@ -7,34 +7,49 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import xxhash from 'xxhash-wasm';
 import type { ChunkInfo } from './types';
 
 const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
 
+// Singleton instance for xxhash
+let hasherInstance: Awaited<ReturnType<typeof xxhash>> | null = null;
+
+async function getHasher() {
+  if (!hasherInstance) {
+    hasherInstance = await xxhash();
+  }
+  return hasherInstance;
+}
+
 /**
- * Compute SHA-256 hash of a file
- * Used for content-addressable storage
+ * Compute xxHash-64 hash of a file
+ * Optimized for speed using WebAssembly
  */
 export async function hashFile(filePath: string): Promise<string> {
+  const { create64 } = await getHasher();
+  const hash = create64();
+
   return new Promise((resolve, reject) => {
-    const hash = createHash('sha256');
-    const stream = createReadStream(filePath);
+    // Use a larger buffer for file reading to reduce IO overhead
+    const stream = createReadStream(filePath, { highWaterMark: 64 * 1024 });
 
     stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('end', () => resolve(hash.digest().toString(16).padStart(16, '0')));
     stream.on('error', reject);
   });
 }
 
 /**
- * Compute hash of a buffer
+ * Compute hash of a buffer (SHA-256)
+ * Kept as SHA-256 for synchronous compatibility where needed
  */
 export function hashBuffer(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex');
 }
 
 /**
- * Compute hash of a string
+ * Compute hash of a string (SHA-256)
  */
 export function hashString(str: string): string {
   return createHash('sha256').update(str, 'utf8').digest('hex');
@@ -51,6 +66,7 @@ export async function computeFileChunks(
   const fileStats = await stat(filePath);
   const totalSize = fileStats.size;
   const chunks: ChunkInfo[] = [];
+  const { create64 } = await getHasher();
 
   return new Promise((resolve, reject) => {
     const stream = createReadStream(filePath, { highWaterMark: chunkSize });
@@ -59,7 +75,11 @@ export async function computeFileChunks(
 
     stream.on('data', (chunk) => {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      const hash = hashBuffer(buf);
+      // Use xxHash for chunks as well for consistency and speed
+      const hasher = create64();
+      hasher.update(buf);
+      const hash = hasher.digest().toString(16).padStart(16, '0');
+      
       chunks.push({
         index,
         offset,

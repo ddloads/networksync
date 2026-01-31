@@ -177,16 +177,22 @@ export async function scanDirectory(
     };
   };
 
-  // Process in batches for concurrency control
-  for (let i = 0; i < filesToProcess.length; i += concurrency) {
-    const batch = filesToProcess.slice(i, i + concurrency);
-    const results = await Promise.all(batch.map(processFile));
+  // Process files with controlled concurrency using a pool
+  // This avoids "lock-step" batching where one slow file blocks the batch
+  const limit = pLimit(concurrency);
+  const promises = filesToProcess.map((file) =>
+    limit(async () => {
+      const entry = await processFile(file);
+      return entry;
+    })
+  );
 
-    for (const entry of results) {
-      entries.push(entry);
-      totalSize += entry.size;
-      fileCount++;
-    }
+  const results = await Promise.all(promises);
+
+  for (const entry of results) {
+    entries.push(entry);
+    totalSize += entry.size;
+    fileCount++;
   }
 
   // Save cache if path provided and hashes were computed
@@ -200,6 +206,38 @@ export async function scanDirectory(
     fileCount,
     directoryCount,
     scannedAt: new Date(),
+  };
+}
+
+/**
+ * Simple concurrency limiter to avoid EMFILE errors and manage load
+ */
+function pLimit(concurrency: number) {
+  const queue: (() => void)[] = [];
+  let active = 0;
+
+  return <T>(fn: () => Promise<T>): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      const run = async () => {
+        active++;
+        try {
+          resolve(await fn());
+        } catch (err) {
+          reject(err);
+        } finally {
+          active--;
+          if (queue.length > 0) {
+            queue.shift()!();
+          }
+        }
+      };
+
+      if (active < concurrency) {
+        run();
+      } else {
+        queue.push(run);
+      }
+    });
   };
 }
 

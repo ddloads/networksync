@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Lock, Unlock, Search, File, Folder, RefreshCw, ArrowLeft } from 'lucide-react';
 import { formatRelativeTime } from '@/lib/utils';
+import { useToast } from '@/components/ui/use-toast';
 
 interface FileEntry {
   path: string;
@@ -23,6 +24,7 @@ interface FileBrowserPageProps {
 }
 
 export function FileBrowserPage({ projectId, localPath, onBack }: FileBrowserPageProps) {
+  const { toast } = useToast();
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [locks, setLocks] = useState<FileLock[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,6 +47,11 @@ export function FileBrowserPage({ projectId, localPath, onBack }: FileBrowserPag
       setLocks(lockList);
     } catch (error) {
       console.error('Failed to load files:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load files or locks.",
+        variant: "destructive"
+      });
     } finally {
       setLoading(false);
     }
@@ -55,11 +62,21 @@ export function FileBrowserPage({ projectId, localPath, onBack }: FileBrowserPag
       const success = await window.api.lockFile(projectId, path);
       if (success) {
         await loadData(); // Refresh locks
+        toast({ title: "File locked" });
       } else {
-        alert('Failed to lock file. It might be locked by someone else.');
+        toast({
+            title: "Lock failed",
+            description: "It might be locked by someone else.",
+            variant: "destructive"
+        });
       }
     } catch (error) {
       console.error('Lock failed:', error);
+      toast({
+        title: "Error",
+        description: "Failed to lock file.",
+        variant: "destructive"
+      });
     }
   };
 
@@ -68,11 +85,21 @@ export function FileBrowserPage({ projectId, localPath, onBack }: FileBrowserPag
       const success = await window.api.unlockFile(projectId, path);
       if (success) {
         await loadData();
+        toast({ title: "File unlocked" });
       } else {
-        alert('Failed to unlock file.');
+        toast({
+            title: "Unlock failed",
+            description: "Could not unlock file.",
+            variant: "destructive"
+        });
       }
     } catch (error) {
       console.error('Unlock failed:', error);
+      toast({
+        title: "Error",
+        description: "Failed to unlock file.",
+        variant: "destructive"
+      });
     }
   };
 
@@ -158,3 +185,4 @@ export function FileBrowserPage({ projectId, localPath, onBack }: FileBrowserPag
     </div>
   );
 }
+
